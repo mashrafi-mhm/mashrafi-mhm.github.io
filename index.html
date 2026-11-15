@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en" class="scroll-smooth">
 <head>
   <meta charset="UTF-8">
@@ -273,10 +273,10 @@
     <button onclick="closeLightbox()" class="absolute top-6 right-6 w-11 h-11 rounded-full bg-white/10 text-white flex items-center justify-center text-xl hover:bg-white/20 transition-all z-20" title="Close (Esc)">
       ✕
     </button>
-    <button onclick="prevLightboxImage()" class="absolute left-4 sm:left-6 top-1/2 -translate-y-1/2 w-12 h-12 rounded-full bg-white/10 text-white flex items-center justify-center text-2xl hover:bg-white/20 transition-all z-20" title="Previous (Left Arrow)">
+    <button id="lightboxPrevBtn" onclick="prevLightboxImage()" class="absolute left-4 sm:left-6 top-1/2 -translate-y-1/2 w-12 h-12 rounded-full bg-white/10 text-white flex items-center justify-center text-2xl hover:bg-white/20 transition-all z-20" title="Previous (Left Arrow)">
       ‹
     </button>
-    <button onclick="nextLightboxImage()" class="absolute right-4 sm:right-6 top-1/2 -translate-y-1/2 w-12 h-12 rounded-full bg-white/10 text-white flex items-center justify-center text-2xl hover:bg-white/20 transition-all z-20" title="Next (Right Arrow)">
+    <button id="lightboxNextBtn" onclick="nextLightboxImage()" class="absolute right-4 sm:right-6 top-1/2 -translate-y-1/2 w-12 h-12 rounded-full bg-white/10 text-white flex items-center justify-center text-2xl hover:bg-white/20 transition-all z-20" title="Next (Right Arrow)">
       ›
     </button>
     <div class="max-w-4xl w-full text-center">
@@ -1336,74 +1336,94 @@
     };
 
     let sectionsData = JSON.parse(JSON.stringify(DEFAULT_SECTIONS_DATA));
-    let photosData = [];
-    let currentPhotoIdx = 0;
 
-    function openLightboxImage(idx) {
-      if (!photosData || photosData.length === 0) rebuildLightboxData();
-      currentPhotoIdx = Math.max(0, Math.min(idx, photosData.length - 1));
+    // --- Isolated Card-Scoped Lightbox Engine ---
+    let currentLightboxSec = null;
+    let currentLightboxCardId = null;
+    let currentLightboxPhotoIdx = 0;
+
+    function openLightboxForCard(section, cardId, photoIdx = 0) {
+      const card = (sectionsData[section] || []).find(c => c.id === cardId);
+      if (!card || !card.photos || card.photos.length === 0) return;
+      currentLightboxSec = section;
+      currentLightboxCardId = cardId;
+      currentLightboxPhotoIdx = Math.max(0, Math.min(photoIdx, card.photos.length - 1));
       updateLightbox();
       document.getElementById('photoLightbox').classList.remove('hidden');
     }
 
-    function openLightboxForCard(section, cardId) {
-      rebuildLightboxData();
-      const card = (sectionsData[section] || []).find(c => c.id === cardId);
-      if (!card || !card.photos || card.photos.length === 0) return;
-      const activePhoto = card.photos[card.activeIdx || 0] || card.photos[0];
-      const idx = photosData.findIndex(p => p.id === activePhoto.id);
-      openLightboxImage(idx !== -1 ? idx : 0);
-    }
-
     function openLightboxByPhotoId(id) {
-      rebuildLightboxData();
-      const idx = photosData.findIndex(p => p.id === id);
-      if (idx !== -1) {
-        openLightboxImage(idx);
-      } else {
-        openLightboxImage(0);
+      for (const sec of ['hero', 'portraits', 'celebration', 'gallery']) {
+        const cards = sectionsData[sec] || [];
+        for (const card of cards) {
+          const pIdx = (card.photos || []).findIndex(p => p.id === id);
+          if (pIdx !== -1) {
+            openLightboxForCard(sec, card.id, pIdx);
+            return;
+          }
+        }
       }
     }
 
     function updateLightbox() {
-      if (!photosData || photosData.length === 0) return;
-      const item = photosData[currentPhotoIdx];
+      if (!currentLightboxSec || !currentLightboxCardId) return;
+      const card = (sectionsData[currentLightboxSec] || []).find(c => c.id === currentLightboxCardId);
+      if (!card || !card.photos || card.photos.length === 0) {
+        closeLightbox();
+        return;
+      }
+      const photos = card.photos;
+      if (currentLightboxPhotoIdx >= photos.length) {
+        currentLightboxPhotoIdx = Math.max(0, photos.length - 1);
+      }
+      const item = photos[currentLightboxPhotoIdx];
       if (!item) return;
+
       const img = document.getElementById('lightboxImg');
       if (img) img.src = item.src;
       const title = document.getElementById('lightboxTitle');
-      if (title) title.innerText = item.title || item.cardTitle || '';
+      if (title) title.innerText = item.title || card.title || '';
       const cat = document.getElementById('lightboxCategory');
-      if (cat) cat.innerText = `${item.cardTitle} • Photo ${item.photoIndexInCard || 1} of ${item.totalInCard || 1}`;
+      if (cat) cat.innerText = card.title;
       const sub = document.getElementById('lightboxSubtitle');
-      if (sub) sub.innerText = item.desc || '';
+      if (sub) sub.innerText = item.desc || card.desc || '';
       const counter = document.getElementById('lightboxCounter');
-      if (counter) counter.innerText = `(${currentPhotoIdx + 1} of ${photosData.length})`;
-    }
+      if (counter) counter.innerText = `(${currentLightboxPhotoIdx + 1} of ${photos.length})`;
 
-    function addPhotoToCurrentLightboxSection() {
-      if (!isAdmin) return;
-      if (!photosData || photosData.length === 0) return;
-      const item = photosData[currentPhotoIdx];
-      if (!item) return;
-      closeLightbox();
-      openAddPhotoToCardModal(item.section, item.cardId);
-    }
-
-    function closeLightbox() {
-      document.getElementById('photoLightbox').classList.add('hidden');
+      // Navigation arrows only appear if THIS CARD has multiple photos
+      const prevBtn = document.getElementById('lightboxPrevBtn');
+      const nextBtn = document.getElementById('lightboxNextBtn');
+      if (prevBtn) prevBtn.style.display = photos.length > 1 ? 'flex' : 'none';
+      if (nextBtn) nextBtn.style.display = photos.length > 1 ? 'flex' : 'none';
     }
 
     function nextLightboxImage() {
-      if (!photosData || photosData.length === 0) return;
-      currentPhotoIdx = (currentPhotoIdx + 1) % photosData.length;
+      if (!currentLightboxSec || !currentLightboxCardId) return;
+      const card = (sectionsData[currentLightboxSec] || []).find(c => c.id === currentLightboxCardId);
+      if (!card || !card.photos || card.photos.length <= 1) return;
+      currentLightboxPhotoIdx = (currentLightboxPhotoIdx + 1) % card.photos.length;
       updateLightbox();
     }
 
     function prevLightboxImage() {
-      if (!photosData || photosData.length === 0) return;
-      currentPhotoIdx = (currentPhotoIdx - 1 + photosData.length) % photosData.length;
+      if (!currentLightboxSec || !currentLightboxCardId) return;
+      const card = (sectionsData[currentLightboxSec] || []).find(c => c.id === currentLightboxCardId);
+      if (!card || !card.photos || card.photos.length <= 1) return;
+      currentLightboxPhotoIdx = (currentLightboxPhotoIdx - 1 + card.photos.length) % card.photos.length;
       updateLightbox();
+    }
+
+    function addPhotoToCurrentLightboxSection() {
+      if (!isAdmin) return;
+      if (!currentLightboxSec || !currentLightboxCardId) return;
+      const sec = currentLightboxSec;
+      const cId = currentLightboxCardId;
+      closeLightbox();
+      openAddPhotoToCardModal(sec, cId);
+    }
+
+    function closeLightbox() {
+      document.getElementById('photoLightbox').classList.add('hidden');
     }
 
     // Keyboard navigation
@@ -1415,7 +1435,6 @@
         if (e.key === 'ArrowLeft') prevLightboxImage();
       }
     });
-
 
     // --- Three.js Subtle Apple Titanium 3D Studio Setup ---
     const canvas = document.getElementById('webgl-canvas');
@@ -1429,7 +1448,6 @@
 
     const renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: !isMobileDevice, alpha: true, powerPreference: 'low-power' });
     renderer.setSize(window.innerWidth, window.innerHeight);
-    // Mobile: pixel ratio 1 to avoid GPU overload; Desktop: max 2
     renderer.setPixelRatio(isMobileDevice ? 1 : Math.min(window.devicePixelRatio, 2));
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.0;
@@ -1447,7 +1465,6 @@
     scene.add(rimLight);
 
     // Apple Grade Sculpted Titanium Ribbon
-    // Mobile: simpler geometry for smooth 60fps
     const sculptureMaterial = new THREE.MeshPhysicalMaterial({
       color: 0x141416,
       emissive: 0x2e220a,
@@ -1462,11 +1479,13 @@
     const radialSegments = isMobileDevice ? 8 : 16;
     const sculptureGeom = new THREE.TorusKnotGeometry(1.2, 0.3, tubeSegments, radialSegments);
     const sculptureMesh = new THREE.Mesh(sculptureGeom, sculptureMaterial);
+    sculptureMesh.position.set(0, 0, 0);
     scene.add(sculptureMesh);
 
-    // Mouse Parallax — desktop only
-    let targetRotX = 0;
+    // Mouse Interaction
     let targetRotY = 0;
+    let targetRotX = 0;
+
     if (!isMobileDevice) {
       window.addEventListener('mousemove', (e) => {
         targetRotY = ((e.clientX / window.innerWidth) * 2 - 1) * 0.3;
@@ -1491,11 +1510,10 @@
 
     window.addEventListener('resize', () => {
       camera.aspect = window.innerWidth / window.innerHeight;
-      camera.updateProjectionMatrix();
+      camera.updateProjectionMatrix;
       renderer.setSize(window.innerWidth, window.innerHeight);
     });
 
-    // Mobile: slower rotation to reduce GPU heat
     const rotSpeed = isMobileDevice ? 0.0015 : 0.003;
 
     function renderLoop() {
@@ -1508,7 +1526,7 @@
     renderLoop();
 
     // ============================================================
-    // PHOTO MANAGEMENT SYSTEM (IndexedDB + Unlimited Sections)
+    // PHOTO MANAGEMENT SYSTEM (IndexedDB + Dedicated Card Albums)
     // ============================================================
 
     function escapeHtml(str) {
@@ -1557,9 +1575,7 @@
     async function idbSet(key, value) {
       try {
         localStorage.setItem(key, JSON.stringify(value));
-      } catch (e) {
-        // LocalStorage quota may be exceeded for large media; IndexedDB will safely handle it
-      }
+      } catch (e) {}
       try {
         const db = await openPhotoDB();
         if (!db) return;
@@ -1608,7 +1624,7 @@
       });
     }
 
-function normalizeSectionsData(data) {
+    function normalizeSectionsData(data) {
       if (!data) data = JSON.parse(JSON.stringify(DEFAULT_SECTIONS_DATA));
       const sections = ['hero', 'portraits', 'celebration', 'gallery'];
       sections.forEach(sec => {
@@ -1680,7 +1696,7 @@ function normalizeSectionsData(data) {
       
       const container = document.getElementById('heroCardContainer');
       if (container) {
-        container.onclick = () => openLightboxForCard('hero', card.id);
+        container.onclick = () => openLightboxForCard('hero', card.id, activeIdx);
       }
     }
 
@@ -1691,7 +1707,7 @@ function normalizeSectionsData(data) {
       if (list.length === 0) {
         grid.innerHTML = `
           <div class="col-span-full py-12 px-6 text-center text-appleSubtext border border-dashed border-white/15 rounded-2xl bg-[#121214]">
-            <span class="text-3xl block mb-2">ðŸ“¸</span>
+            <span class="text-3xl block mb-2">📸</span>
             <p class="text-sm text-white font-medium">No portrait cards yet.</p>
             <p class="text-xs mt-1">Click "+ New Portrait Card" above to add your first card.</p>
           </div>`;
@@ -1705,11 +1721,11 @@ function normalizeSectionsData(data) {
         const hasMultiple = photos.length > 1;
 
         return `
-          <div class="apple-billboard-card p-6 h-[520px] flex flex-col justify-between group cursor-pointer relative" onclick="openLightboxForCard('portraits', '${card.id}')">
+          <div class="apple-billboard-card p-6 h-[520px] flex flex-col justify-between group cursor-pointer relative" onclick="openLightboxForCard('portraits', '${card.id}', ${activeIdx})">
             <!-- Card Header Controls (Dev Mode) -->
             <div data-admin-only class="absolute top-4 right-4 z-30 flex items-center gap-1.5 flex-wrap justify-end" onclick="event.stopPropagation()">
-              <button onclick="openAddPhotoToCardModal('portraits', '${card.id}', event)" class="px-2.5 py-1.5 rounded-full bg-appleBlue hover:bg-appleBlueHover text-white text-xs font-semibold backdrop-blur-md transition-all shadow-lg flex items-center gap-1" title="Add another photo to this card">âž• Add Photo</button>
-              <button onclick="deleteEntireCard('portraits', '${card.id}', event)" class="px-2.5 py-1.5 rounded-full bg-red-600/30 hover:bg-red-600 text-red-300 hover:text-white border border-red-500/30 text-xs font-semibold transition-all shadow-lg flex items-center gap-1" title="Delete entire card">ðŸ—‘ï¸ Delete Card</button>
+              <button onclick="openAddPhotoToCardModal('portraits', '${card.id}', event)" class="px-2.5 py-1.5 rounded-full bg-appleBlue hover:bg-appleBlueHover text-white text-xs font-semibold backdrop-blur-md transition-all shadow-lg flex items-center gap-1" title="Add another photo to this card">➕ Add Photo</button>
+              <button onclick="deleteEntireCard('portraits', '${card.id}', event)" class="px-2.5 py-1.5 rounded-full bg-red-600/30 hover:bg-red-600 text-red-300 hover:text-white border border-red-500/30 text-xs font-semibold transition-all shadow-lg flex items-center gap-1" title="Delete entire card">🗑️ Delete Card</button>
             </div>
 
             <!-- Card Info -->
@@ -1717,7 +1733,7 @@ function normalizeSectionsData(data) {
               <span class="text-[11px] font-mono text-appleGold uppercase tracking-widest">${escapeHtml(card.tag || ('Portrait 0' + (idx + 1)))}</span>
               <div class="flex items-center gap-2 mt-1">
                 <h3 class="text-2xl font-bold text-white">${escapeHtml(card.title)}</h3>
-                <button data-admin-only onclick="promptRenameCard('portraits', '${card.id}', event)" class="px-2 py-0.5 rounded-full bg-white/10 hover:bg-white/20 text-white text-xs font-mono font-normal" title="Rename card">âœï¸</button>
+                <button data-admin-only onclick="promptRenameCard('portraits', '${card.id}', event)" class="px-2 py-0.5 rounded-full bg-white/10 hover:bg-white/20 text-white text-xs font-mono font-normal" title="Rename card">✏️</button>
               </div>
               <p class="text-appleSubtext text-xs mt-1">${escapeHtml(card.desc || '')}</p>
             </div>
@@ -1726,28 +1742,28 @@ function normalizeSectionsData(data) {
             <div class="relative h-72 rounded-2xl overflow-hidden mt-3 bg-black/40 flex items-center justify-center">
               ${photos.length === 0 ? `
                 <div class="p-6 text-center text-appleSubtext" onclick="event.stopPropagation()">
-                  <span class="text-3xl block mb-2">ðŸ“¸</span>
+                  <span class="text-3xl block mb-2">📸</span>
                   <p class="text-xs text-white">No photos in this card.</p>
-                  <button data-admin-only onclick="openAddPhotoToCardModal('portraits', '${card.id}', event)" class="mt-2 px-3 py-1 rounded-full bg-appleBlue text-white text-xs font-semibold">âž• Add Photo</button>
+                  <button data-admin-only onclick="openAddPhotoToCardModal('portraits', '${card.id}', event)" class="mt-2 px-3 py-1 rounded-full bg-appleBlue text-white text-xs font-semibold">➕ Add Photo</button>
                 </div>
               ` : `
                 <img src="${activePhoto.src}" alt="${escapeHtml(activePhoto.title || card.title)}" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700">
                 
                 <!-- Photo Counter Badge -->
                 <div class="absolute top-3 left-3 px-2 py-0.5 rounded-full bg-black/60 backdrop-blur-md text-white text-[10px] font-mono border border-white/10">
-                  ðŸ“· ${activeIdx + 1} / ${photos.length}
+                  📷 ${activeIdx + 1} / ${photos.length}
                 </div>
 
                 <!-- Navigation Arrows if multiple photos -->
                 ${hasMultiple ? `
-                  <button onclick="prevCardPhoto('portraits', '${card.id}', event)" class="absolute left-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-black/60 hover:bg-black/80 text-white flex items-center justify-center text-sm border border-white/20 backdrop-blur-md transition-all z-20" title="Previous Photo">â€¹</button>
-                  <button onclick="nextCardPhoto('portraits', '${card.id}', event)" class="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-black/60 hover:bg-black/80 text-white flex items-center justify-center text-sm border border-white/20 backdrop-blur-md transition-all z-20" title="Next Photo">â€º</button>
+                  <button onclick="prevCardPhoto('portraits', '${card.id}', event)" class="absolute left-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-black/60 hover:bg-black/80 text-white flex items-center justify-center text-sm border border-white/20 backdrop-blur-md transition-all z-20" title="Previous Photo">‹</button>
+                  <button onclick="nextCardPhoto('portraits', '${card.id}', event)" class="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-black/60 hover:bg-black/80 text-white flex items-center justify-center text-sm border border-white/20 backdrop-blur-md transition-all z-20" title="Next Photo">›</button>
                 ` : ''}
 
                 <!-- Dedicated Photo Actions Overlay (Dev Mode) -->
                 <div data-admin-only class="absolute bottom-2 right-2 z-20 flex items-center gap-1.5" onclick="event.stopPropagation()">
-                  <button onclick="triggerCardPhotoReplace('portraits', '${card.id}', '${activePhoto.id}', event)" class="px-2.5 py-1 rounded-full bg-black/80 hover:bg-white hover:text-black border border-white/30 text-white text-[11px] font-semibold backdrop-blur-md transition-all flex items-center gap-1" title="Change this photo">ðŸ“· Change</button>
-                  <button onclick="deletePhotoFromCard('portraits', '${card.id}', '${activePhoto.id}', event)" class="px-2.5 py-1 rounded-full bg-red-600/90 hover:bg-red-500 text-white text-[11px] font-semibold backdrop-blur-md transition-all shadow flex items-center gap-1" title="Delete only this photo (card remains intact)">ðŸ—‘ï¸ Remove Photo</button>
+                  <button onclick="triggerCardPhotoReplace('portraits', '${card.id}', '${activePhoto.id}', event)" class="px-2.5 py-1 rounded-full bg-black/80 hover:bg-white hover:text-black border border-white/30 text-white text-[11px] font-semibold backdrop-blur-md transition-all flex items-center gap-1" title="Change this photo">📷 Change</button>
+                  <button onclick="deletePhotoFromCard('portraits', '${card.id}', '${activePhoto.id}', event)" class="px-2.5 py-1 rounded-full bg-red-600/90 hover:bg-red-500 text-white text-[11px] font-semibold backdrop-blur-md transition-all shadow flex items-center gap-1" title="Delete only this photo (card remains intact)">🗑️ Remove Photo</button>
                 </div>
               `}
             </div>
@@ -1757,10 +1773,10 @@ function normalizeSectionsData(data) {
               ${photos.map((p, pIdx) => `
                 <div class="relative group/thumb flex-shrink-0">
                   <img src="${p.src}" class="w-10 h-10 object-cover rounded-lg cursor-pointer border ${pIdx === activeIdx ? 'border-appleBlue ring-1 ring-appleBlue' : 'border-white/20 opacity-60 hover:opacity-100'}" onclick="setCardActivePhoto('portraits', '${card.id}', ${pIdx}, event)">
-                  <button onclick="deletePhotoFromCard('portraits', '${card.id}', '${p.id}', event)" class="absolute -top-1 -right-1 w-4 h-4 bg-red-600 hover:bg-red-500 text-white rounded-full text-[9px] flex items-center justify-center opacity-0 group-hover/thumb:opacity-100 transition-opacity shadow" title="Delete this photo">âœ•</button>
+                  <button onclick="deletePhotoFromCard('portraits', '${card.id}', '${p.id}', event)" class="absolute -top-1 -right-1 w-4 h-4 bg-red-600 hover:bg-red-500 text-white rounded-full text-[9px] flex items-center justify-center opacity-0 group-hover/thumb:opacity-100 transition-opacity shadow" title="Delete this photo">✕</button>
                 </div>
               `).join('')}
-              <button onclick="openAddPhotoToCardModal('portraits', '${card.id}', event)" class="w-10 h-10 rounded-lg border border-dashed border-white/30 hover:border-appleBlue text-white/60 hover:text-white flex items-center justify-center text-xs flex-shrink-0" title="Add photo to this card">âž•</button>
+              <button onclick="openAddPhotoToCardModal('portraits', '${card.id}', event)" class="w-10 h-10 rounded-lg border border-dashed border-white/30 hover:border-appleBlue text-white/60 hover:text-white flex items-center justify-center text-xs flex-shrink-0" title="Add photo to this card">➕</button>
             </div>
           </div>
         `;
@@ -1775,7 +1791,7 @@ function normalizeSectionsData(data) {
         grid.className = "grid grid-cols-1 gap-6 text-left";
         grid.innerHTML = `
           <div class="col-span-full py-12 px-6 text-center text-appleSubtext border border-dashed border-white/15 rounded-2xl bg-[#121214]">
-            <span class="text-3xl block mb-2">ðŸŽ‰</span>
+            <span class="text-3xl block mb-2">🎉</span>
             <p class="text-sm text-white font-medium">No celebration cards yet.</p>
             <p class="text-xs mt-1">Click "+ New Celebration Card" to showcase wedding & ceremonial moments.</p>
           </div>`;
@@ -1791,19 +1807,19 @@ function normalizeSectionsData(data) {
         const hasMultiple = photos.length > 1;
 
         return `
-          <div class="apple-billboard-card relative ${isSingle ? 'h-[520px] sm:h-[600px]' : 'h-[480px] sm:h-[520px]'} group cursor-pointer flex flex-col justify-between" onclick="openLightboxForCard('celebration', '${card.id}')">
+          <div class="apple-billboard-card relative ${isSingle ? 'h-[520px] sm:h-[600px]' : 'h-[480px] sm:h-[520px]'} group cursor-pointer flex flex-col justify-between" onclick="openLightboxForCard('celebration', '${card.id}', ${activeIdx})">
             <!-- Dev Mode Header Actions -->
             <div data-admin-only class="absolute top-4 right-4 z-30 flex items-center gap-1.5 flex-wrap justify-end" onclick="event.stopPropagation()">
-              <button onclick="openAddPhotoToCardModal('celebration', '${card.id}', event)" class="px-2.5 py-1.5 rounded-full bg-appleBlue hover:bg-appleBlueHover text-white text-xs font-semibold backdrop-blur-md transition-all shadow-lg flex items-center gap-1" title="Add another photo to this card">âž• Add Photo</button>
-              <button onclick="deleteEntireCard('celebration', '${card.id}', event)" class="px-2.5 py-1.5 rounded-full bg-red-600/30 hover:bg-red-600 text-red-300 hover:text-white border border-red-500/30 text-xs font-semibold transition-all shadow-lg flex items-center gap-1" title="Delete entire card">ðŸ—‘ï¸ Delete Card</button>
+              <button onclick="openAddPhotoToCardModal('celebration', '${card.id}', event)" class="px-2.5 py-1.5 rounded-full bg-appleBlue hover:bg-appleBlueHover text-white text-xs font-semibold backdrop-blur-md transition-all shadow-lg flex items-center gap-1" title="Add another photo to this card">➕ Add Photo</button>
+              <button onclick="deleteEntireCard('celebration', '${card.id}', event)" class="px-2.5 py-1.5 rounded-full bg-red-600/30 hover:bg-red-600 text-red-300 hover:text-white border border-red-500/30 text-xs font-semibold transition-all shadow-lg flex items-center gap-1" title="Delete entire card">🗑️ Delete Card</button>
             </div>
 
             <!-- Background Image -->
             ${photos.length === 0 ? `
               <div class="h-full w-full flex flex-col items-center justify-center p-6 text-center bg-black/40" onclick="event.stopPropagation()">
-                <span class="text-4xl mb-2">ðŸŽ‰</span>
+                <span class="text-4xl mb-2">🎉</span>
                 <p class="text-sm text-white">No photos in this card.</p>
-                <button data-admin-only onclick="openAddPhotoToCardModal('celebration', '${card.id}', event)" class="mt-2 px-3 py-1.5 rounded-full bg-appleBlue text-white text-xs font-semibold">âž• Add Photo</button>
+                <button data-admin-only onclick="openAddPhotoToCardModal('celebration', '${card.id}', event)" class="mt-2 px-3 py-1.5 rounded-full bg-appleBlue text-white text-xs font-semibold">➕ Add Photo</button>
               </div>
             ` : `
               <img src="${activePhoto.src}" alt="${escapeHtml(activePhoto.title || card.title)}" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700 absolute inset-0">
@@ -1811,19 +1827,19 @@ function normalizeSectionsData(data) {
               
               <!-- Photo Counter Badge -->
               <div class="absolute top-4 left-4 z-20 px-2.5 py-1 rounded-full bg-black/60 backdrop-blur-md text-white text-xs font-mono border border-white/10">
-                ðŸ“· ${activeIdx + 1} / ${photos.length}
+                📷 ${activeIdx + 1} / ${photos.length}
               </div>
 
               <!-- Left/Right Arrows if multiple -->
               ${hasMultiple ? `
-                <button onclick="prevCardPhoto('celebration', '${card.id}', event)" class="absolute left-3 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-black/60 hover:bg-black/80 text-white flex items-center justify-center text-lg border border-white/20 backdrop-blur-md transition-all z-20" title="Previous Photo">â€¹</button>
-                <button onclick="nextCardPhoto('celebration', '${card.id}', event)" class="absolute right-3 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-black/60 hover:bg-black/80 text-white flex items-center justify-center text-lg border border-white/20 backdrop-blur-md transition-all z-20" title="Next Photo">â€º</button>
+                <button onclick="prevCardPhoto('celebration', '${card.id}', event)" class="absolute left-3 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-black/60 hover:bg-black/80 text-white flex items-center justify-center text-lg border border-white/20 backdrop-blur-md transition-all z-20" title="Previous Photo">‹</button>
+                <button onclick="nextCardPhoto('celebration', '${card.id}', event)" class="absolute right-3 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-black/60 hover:bg-black/80 text-white flex items-center justify-center text-lg border border-white/20 backdrop-blur-md transition-all z-20" title="Next Photo">›</button>
               ` : ''}
 
               <!-- Dedicated Photo Controls on photo (Dev Mode) -->
               <div data-admin-only class="absolute top-14 right-4 z-20 flex items-center gap-1.5" onclick="event.stopPropagation()">
-                <button onclick="triggerCardPhotoReplace('celebration', '${card.id}', '${activePhoto.id}', event)" class="px-2.5 py-1 rounded-full bg-black/80 hover:bg-white hover:text-black border border-white/30 text-white text-[11px] font-semibold backdrop-blur-md transition-all flex items-center gap-1" title="Change this photo">ðŸ“· Change</button>
-                <button onclick="deletePhotoFromCard('celebration', '${card.id}', '${activePhoto.id}', event)" class="px-2.5 py-1 rounded-full bg-red-600/90 hover:bg-red-500 text-white text-[11px] font-semibold backdrop-blur-md transition-all shadow flex items-center gap-1" title="Delete only this photo (card remains intact)">ðŸ—‘ï¸ Remove Photo</button>
+                <button onclick="triggerCardPhotoReplace('celebration', '${card.id}', '${activePhoto.id}', event)" class="px-2.5 py-1 rounded-full bg-black/80 hover:bg-white hover:text-black border border-white/30 text-white text-[11px] font-semibold backdrop-blur-md transition-all flex items-center gap-1" title="Change this photo">📷 Change</button>
+                <button onclick="deletePhotoFromCard('celebration', '${card.id}', '${activePhoto.id}', event)" class="px-2.5 py-1 rounded-full bg-red-600/90 hover:bg-red-500 text-white text-[11px] font-semibold backdrop-blur-md transition-all shadow flex items-center gap-1" title="Delete only this photo (card remains intact)">🗑️ Remove Photo</button>
               </div>
             `}
 
@@ -1834,10 +1850,10 @@ function normalizeSectionsData(data) {
                 ${photos.map((p, pIdx) => `
                   <div class="relative group/thumb flex-shrink-0">
                     <img src="${p.src}" class="w-11 h-11 object-cover rounded-lg cursor-pointer border ${pIdx === activeIdx ? 'border-appleBlue ring-2 ring-appleBlue' : 'border-white/20 opacity-70 hover:opacity-100'}" onclick="setCardActivePhoto('celebration', '${card.id}', ${pIdx}, event)">
-                    <button onclick="deletePhotoFromCard('celebration', '${card.id}', '${p.id}', event)" class="absolute -top-1 -right-1 w-4 h-4 bg-red-600 hover:bg-red-500 text-white rounded-full text-[9px] flex items-center justify-center opacity-0 group-hover/thumb:opacity-100 transition-opacity shadow" title="Delete this photo">âœ•</button>
+                    <button onclick="deletePhotoFromCard('celebration', '${card.id}', '${p.id}', event)" class="absolute -top-1 -right-1 w-4 h-4 bg-red-600 hover:bg-red-500 text-white rounded-full text-[9px] flex items-center justify-center opacity-0 group-hover/thumb:opacity-100 transition-opacity shadow" title="Delete this photo">✕</button>
                   </div>
                 `).join('')}
-                <button onclick="openAddPhotoToCardModal('celebration', '${card.id}', event)" class="w-11 h-11 rounded-lg border border-dashed border-white/30 hover:border-appleBlue text-white/60 hover:text-white flex items-center justify-center text-xs flex-shrink-0" title="Add photo to this card">âž•</button>
+                <button onclick="openAddPhotoToCardModal('celebration', '${card.id}', event)" class="w-11 h-11 rounded-lg border border-dashed border-white/30 hover:border-appleBlue text-white/60 hover:text-white flex items-center justify-center text-xs flex-shrink-0" title="Add photo to this card">➕</button>
               </div>
 
               <div class="flex items-end justify-between">
@@ -1845,7 +1861,7 @@ function normalizeSectionsData(data) {
                   <span class="text-xs font-mono text-appleBlue uppercase tracking-widest">${escapeHtml(card.tag || 'Wedding & Celebration')}</span>
                   <div class="flex items-center gap-2 mt-1">
                     <h3 class="text-2xl sm:text-3xl font-bold text-white">${escapeHtml(card.title)}</h3>
-                    <button data-admin-only onclick="promptRenameCard('celebration', '${card.id}', event)" class="px-2 py-0.5 rounded-full bg-white/10 hover:bg-white/20 text-white text-xs font-mono font-normal" title="Rename card">âœï¸</button>
+                    <button data-admin-only onclick="promptRenameCard('celebration', '${card.id}', event)" class="px-2 py-0.5 rounded-full bg-white/10 hover:bg-white/20 text-white text-xs font-mono font-normal" title="Rename card">✏️</button>
                   </div>
                   <p class="text-appleSubtext text-sm mt-1 max-w-md">${escapeHtml(card.desc || '')}</p>
                 </div>
@@ -1864,7 +1880,7 @@ function normalizeSectionsData(data) {
       if (list.length === 0) {
         grid.innerHTML = `
           <div class="col-span-full py-12 px-6 text-center text-appleSubtext border border-dashed border-white/15 rounded-2xl bg-[#121214]">
-            <span class="text-3xl block mb-2">ðŸ–¼ï¸</span>
+            <span class="text-3xl block mb-2">🖼️</span>
             <p class="text-sm text-white font-medium">No gallery cards yet.</p>
             <p class="text-xs mt-1">Click "+ New Gallery Card" to showcase your moments.</p>
           </div>`;
@@ -1878,11 +1894,11 @@ function normalizeSectionsData(data) {
         const hasMultiple = photos.length > 1;
 
         return `
-          <div class="apple-billboard-card p-6 h-[510px] flex flex-col justify-between group cursor-pointer text-center relative" onclick="openLightboxForCard('gallery', '${card.id}')">
+          <div class="apple-billboard-card p-6 h-[510px] flex flex-col justify-between group cursor-pointer text-center relative" onclick="openLightboxForCard('gallery', '${card.id}', ${activeIdx})">
             <!-- Dev Mode Header Actions -->
             <div data-admin-only class="absolute top-4 right-4 z-30 flex items-center gap-1.5 flex-wrap justify-end" onclick="event.stopPropagation()">
-              <button onclick="openAddPhotoToCardModal('gallery', '${card.id}', event)" class="px-2.5 py-1.5 rounded-full bg-appleBlue hover:bg-appleBlueHover text-white text-xs font-semibold backdrop-blur-md transition-all shadow-lg flex items-center gap-1" title="Add another photo to this card">âž• Add Photo</button>
-              <button onclick="deleteEntireCard('gallery', '${card.id}', event)" class="px-2.5 py-1.5 rounded-full bg-red-600/30 hover:bg-red-600 text-red-300 hover:text-white border border-red-500/30 text-xs font-semibold transition-all shadow-lg flex items-center gap-1" title="Delete entire card">ðŸ—‘ï¸ Delete Card</button>
+              <button onclick="openAddPhotoToCardModal('gallery', '${card.id}', event)" class="px-2.5 py-1.5 rounded-full bg-appleBlue hover:bg-appleBlueHover text-white text-xs font-semibold backdrop-blur-md transition-all shadow-lg flex items-center gap-1" title="Add another photo to this card">➕ Add Photo</button>
+              <button onclick="deleteEntireCard('gallery', '${card.id}', event)" class="px-2.5 py-1.5 rounded-full bg-red-600/30 hover:bg-red-600 text-red-300 hover:text-white border border-red-500/30 text-xs font-semibold transition-all shadow-lg flex items-center gap-1" title="Delete entire card">🗑️ Delete Card</button>
             </div>
 
             <!-- Card Info -->
@@ -1890,7 +1906,7 @@ function normalizeSectionsData(data) {
               <span class="text-[11px] font-mono text-appleGold uppercase tracking-widest block mb-1">${escapeHtml(card.tag || 'Moment')}</span>
               <div class="flex items-center justify-center gap-2 mt-1">
                 <h3 class="text-2xl font-bold text-white">${escapeHtml(card.title)}</h3>
-                <button data-admin-only onclick="promptRenameCard('gallery', '${card.id}', event)" class="px-2 py-0.5 rounded-full bg-white/10 hover:bg-white/20 text-white text-xs font-mono font-normal" title="Rename card">âœï¸</button>
+                <button data-admin-only onclick="promptRenameCard('gallery', '${card.id}', event)" class="px-2 py-0.5 rounded-full bg-white/10 hover:bg-white/20 text-white text-xs font-mono font-normal" title="Rename card">✏️</button>
               </div>
               <p class="text-appleSubtext text-xs mt-1">${escapeHtml(card.desc || '')}</p>
             </div>
@@ -1899,28 +1915,28 @@ function normalizeSectionsData(data) {
             <div class="relative h-64 rounded-2xl overflow-hidden mt-3 bg-black/40 flex items-center justify-center">
               ${photos.length === 0 ? `
                 <div class="p-6 text-center text-appleSubtext" onclick="event.stopPropagation()">
-                  <span class="text-3xl block mb-2">ðŸ–¼ï¸</span>
+                  <span class="text-3xl block mb-2">🖼️</span>
                   <p class="text-xs text-white">No photos in this card.</p>
-                  <button data-admin-only onclick="openAddPhotoToCardModal('gallery', '${card.id}', event)" class="mt-2 px-3 py-1 rounded-full bg-appleBlue text-white text-xs font-semibold">âž• Add Photo</button>
+                  <button data-admin-only onclick="openAddPhotoToCardModal('gallery', '${card.id}', event)" class="mt-2 px-3 py-1 rounded-full bg-appleBlue text-white text-xs font-semibold">➕ Add Photo</button>
                 </div>
               ` : `
                 <img src="${activePhoto.src}" alt="${escapeHtml(activePhoto.title || card.title)}" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700">
                 
                 <!-- Photo Counter -->
                 <div class="absolute top-2.5 left-2.5 px-2 py-0.5 rounded-full bg-black/60 backdrop-blur-md text-white text-[10px] font-mono border border-white/10">
-                  ðŸ“· ${activeIdx + 1} / ${photos.length}
+                  📷 ${activeIdx + 1} / ${photos.length}
                 </div>
 
                 <!-- Left / Right Arrows if multiple -->
                 ${hasMultiple ? `
-                  <button onclick="prevCardPhoto('gallery', '${card.id}', event)" class="absolute left-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-black/60 hover:bg-black/80 text-white flex items-center justify-center text-sm border border-white/20 backdrop-blur-md transition-all z-20" title="Previous Photo">â€¹</button>
-                  <button onclick="nextCardPhoto('gallery', '${card.id}', event)" class="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-black/60 hover:bg-black/80 text-white flex items-center justify-center text-sm border border-white/20 backdrop-blur-md transition-all z-20" title="Next Photo">â€º</button>
+                  <button onclick="prevCardPhoto('gallery', '${card.id}', event)" class="absolute left-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-black/60 hover:bg-black/80 text-white flex items-center justify-center text-sm border border-white/20 backdrop-blur-md transition-all z-20" title="Previous Photo">‹</button>
+                  <button onclick="nextCardPhoto('gallery', '${card.id}', event)" class="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-black/60 hover:bg-black/80 text-white flex items-center justify-center text-sm border border-white/20 backdrop-blur-md transition-all z-20" title="Next Photo">›</button>
                 ` : ''}
 
                 <!-- Dedicated Photo Actions Overlay (Dev Mode) -->
                 <div data-admin-only class="absolute bottom-2 right-2 z-20 flex items-center gap-1.5" onclick="event.stopPropagation()">
-                  <button onclick="triggerCardPhotoReplace('gallery', '${card.id}', '${activePhoto.id}', event)" class="px-2.5 py-1 rounded-full bg-black/80 hover:bg-white hover:text-black border border-white/30 text-white text-[11px] font-semibold backdrop-blur-md transition-all flex items-center gap-1" title="Change this photo">ðŸ“· Change</button>
-                  <button onclick="deletePhotoFromCard('gallery', '${card.id}', '${activePhoto.id}', event)" class="px-2.5 py-1 rounded-full bg-red-600/90 hover:bg-red-500 text-white text-[11px] font-semibold backdrop-blur-md transition-all shadow flex items-center gap-1" title="Delete only this photo (card remains intact)">ðŸ—‘ï¸ Remove Photo</button>
+                  <button onclick="triggerCardPhotoReplace('gallery', '${card.id}', '${activePhoto.id}', event)" class="px-2.5 py-1 rounded-full bg-black/80 hover:bg-white hover:text-black border border-white/30 text-white text-[11px] font-semibold backdrop-blur-md transition-all flex items-center gap-1" title="Change this photo">📷 Change</button>
+                  <button onclick="deletePhotoFromCard('gallery', '${card.id}', '${activePhoto.id}', event)" class="px-2.5 py-1 rounded-full bg-red-600/90 hover:bg-red-500 text-white text-[11px] font-semibold backdrop-blur-md transition-all shadow flex items-center gap-1" title="Delete only this photo (card remains intact)">🗑️ Remove Photo</button>
                 </div>
               `}
             </div>
@@ -1930,38 +1946,14 @@ function normalizeSectionsData(data) {
               ${photos.map((p, pIdx) => `
                 <div class="relative group/thumb flex-shrink-0">
                   <img src="${p.src}" class="w-10 h-10 object-cover rounded-lg cursor-pointer border ${pIdx === activeIdx ? 'border-appleBlue ring-1 ring-appleBlue' : 'border-white/20 opacity-60 hover:opacity-100'}" onclick="setCardActivePhoto('gallery', '${card.id}', ${pIdx}, event)">
-                  <button onclick="deletePhotoFromCard('gallery', '${card.id}', '${p.id}', event)" class="absolute -top-1 -right-1 w-4 h-4 bg-red-600 hover:bg-red-500 text-white rounded-full text-[9px] flex items-center justify-center opacity-0 group-hover/thumb:opacity-100 transition-opacity shadow" title="Delete this photo">âœ•</button>
+                  <button onclick="deletePhotoFromCard('gallery', '${card.id}', '${p.id}', event)" class="absolute -top-1 -right-1 w-4 h-4 bg-red-600 hover:bg-red-500 text-white rounded-full text-[9px] flex items-center justify-center opacity-0 group-hover/thumb:opacity-100 transition-opacity shadow" title="Delete this photo">✕</button>
                 </div>
               `).join('')}
-              <button onclick="openAddPhotoToCardModal('gallery', '${card.id}', event)" class="w-10 h-10 rounded-lg border border-dashed border-white/30 hover:border-appleBlue text-white/60 hover:text-white flex items-center justify-center text-xs flex-shrink-0" title="Add photo to this card">âž•</button>
+              <button onclick="openAddPhotoToCardModal('gallery', '${card.id}', event)" class="w-10 h-10 rounded-lg border border-dashed border-white/30 hover:border-appleBlue text-white/60 hover:text-white flex items-center justify-center text-xs flex-shrink-0" title="Add photo to this card">➕</button>
             </div>
           </div>
         `;
       }).join('');
-    }
-
-    function rebuildLightboxData() {
-      photosData = [];
-      ['hero', 'portraits', 'celebration', 'gallery'].forEach(sec => {
-        const cards = sectionsData[sec] || [];
-        cards.forEach(card => {
-          const photos = card.photos || [];
-          photos.forEach((p, pIdx) => {
-            photosData.push({
-              id: p.id,
-              src: p.src,
-              title: p.title || card.title,
-              cardTitle: card.title,
-              cardId: card.id,
-              section: sec,
-              category: card.tag || card.category || 'Portfolio',
-              desc: p.desc || card.desc || '',
-              photoIndexInCard: pIdx + 1,
-              totalInCard: photos.length
-            });
-          });
-        });
-      });
     }
 
     function renderAllSections() {
@@ -1969,7 +1961,6 @@ function normalizeSectionsData(data) {
       renderPortraits();
       renderCelebration();
       renderGallery();
-      rebuildLightboxData();
       applyAdminModeUI();
     }
 
@@ -2055,14 +2046,14 @@ function normalizeSectionsData(data) {
       if (selCard.value === '__NEW_CARD__') {
         if (heading) heading.innerText = 'Create New Card Collection';
         if (sub) sub.innerText = 'Creates a new card container in this section';
-        if (hint) hint.innerText = 'âž• A new card will be created with this photo.';
+        if (hint) hint.innerText = '➕ A new card will be created with this photo.';
       } else {
         const sec = document.getElementById('modalTargetSection').value;
         const card = (sectionsData[sec] || []).find(c => c.id === selCard.value);
         const cName = card ? card.title : 'Selected Card';
         if (heading) heading.innerText = `Add Photo to "${cName}"`;
         if (sub) sub.innerText = `The photo will be added to "${cName}" only`;
-        if (hint) hint.innerText = `âœ“ Photo will be added into "${cName}" only without creating extra cards.`;
+        if (hint) hint.innerText = `✓ Photo will be added into "${cName}" only without creating extra cards.`;
       }
     }
 
@@ -2078,13 +2069,13 @@ function normalizeSectionsData(data) {
         const opt = document.createElement('option');
         opt.value = c.id;
         const count = (c.photos || []).length;
-        opt.textContent = `ðŸ“ ${c.title} (${count} photo${count === 1 ? '' : 's'})`;
+        opt.textContent = `📁 ${c.title} (${count} photo${count === 1 ? '' : 's'})`;
         cardSel.appendChild(opt);
       });
       
       const newCardOpt = document.createElement('option');
       newCardOpt.value = '__NEW_CARD__';
-      newCardOpt.textContent = `âž• [Create New Card in ${sec.toUpperCase()}]`;
+      newCardOpt.textContent = `➕ [Create New Card in ${sec.toUpperCase()}]`;
       cardSel.appendChild(newCardOpt);
       
       if (preselectedCardId && (preselectedCardId === '__NEW_CARD__' || cards.some(c => c.id === preselectedCardId))) {
@@ -2177,7 +2168,7 @@ function normalizeSectionsData(data) {
           await saveSectionsData();
           renderAllSections();
           closeAddPhotoModal();
-          showToast(`âœ“ Created new card "${cardTitle}" with ${pendingModalFiles.length} photo(s)!`);
+          showToast(`✓ Created new card "${cardTitle}" with ${pendingModalFiles.length} photo(s)!`);
         } else {
           // Adding photo(s) strictly INTO EXISTING card
           const card = (sectionsData[targetSection] || []).find(c => c.id === targetCardId);
@@ -2203,7 +2194,7 @@ function normalizeSectionsData(data) {
           await saveSectionsData();
           renderAllSections();
           closeAddPhotoModal();
-          showToast(`âœ“ Added ${pendingModalFiles.length} photo(s) into "${card.title}"!`);
+          showToast(`✓ Added ${pendingModalFiles.length} photo(s) into "${card.title}"!`);
         }
       } catch (err) {
         console.error('Photo save error:', err);
@@ -2211,7 +2202,7 @@ function normalizeSectionsData(data) {
       } finally {
         if (submitBtn) {
           submitBtn.disabled = false;
-          submitBtn.innerText = 'âœ“ Add Photo';
+          submitBtn.innerText = '✓ Add Photo';
         }
       }
     }
@@ -2244,7 +2235,7 @@ function normalizeSectionsData(data) {
       
       await saveSectionsData();
       renderAllSections();
-      showToast(`âœ“ Photo deleted from "${card.title}"`);
+      showToast(`✓ Photo deleted from "${card.title}"`);
     }
 
     // --- Delete Entire Card Action ---
@@ -2264,37 +2255,36 @@ function normalizeSectionsData(data) {
       sectionsData[section] = sectionList.filter(c => c.id !== cardId);
       await saveSectionsData();
       renderAllSections();
-      showToast(`ðŸ—‘ï¸ Card "${card.title}" deleted`);
+      showToast(`🗑️ Card "${card.title}" deleted`);
     }
 
     // Backward-compat wrapper
     async function deletePhotoFromSection(section, id, event) {
       const sectionList = sectionsData[section] || [];
-      // Look for photo across cards
       for (const card of sectionList) {
         if ((card.photos || []).some(p => p.id === id)) {
           return deletePhotoFromCard(section, card.id, id, event);
         }
       }
-      // If card id matches
       return deleteEntireCard(section, id, event);
     }
 
     // --- Lightbox In-Place Photo Actions (Owner / Developer Mode) ---
     async function deleteCurrentLightboxPhoto() {
       if (!isAdmin) return;
-      if (!photosData || photosData.length === 0) return;
-      const item = photosData[currentPhotoIdx];
+      if (!currentLightboxSec || !currentLightboxCardId) return;
+      const card = (sectionsData[currentLightboxSec] || []).find(c => c.id === currentLightboxCardId);
+      if (!card || !card.photos || card.photos.length === 0) return;
+      const item = card.photos[currentLightboxPhotoIdx];
       if (!item) return;
 
-      await deletePhotoFromCard(item.section, item.cardId, item.id);
+      await deletePhotoFromCard(currentLightboxSec, currentLightboxCardId, item.id);
 
-      rebuildLightboxData();
-      if (photosData.length === 0) {
+      if (!card.photos || card.photos.length === 0) {
         closeLightbox();
       } else {
-        if (currentPhotoIdx >= photosData.length) {
-          currentPhotoIdx = photosData.length - 1;
+        if (currentLightboxPhotoIdx >= card.photos.length) {
+          currentLightboxPhotoIdx = Math.max(0, card.photos.length - 1);
         }
         updateLightbox();
       }
@@ -2302,37 +2292,38 @@ function normalizeSectionsData(data) {
 
     function replaceCurrentLightboxPhoto() {
       if (!isAdmin) return;
-      if (!photosData || photosData.length === 0) return;
-      const item = photosData[currentPhotoIdx];
+      if (!currentLightboxSec || !currentLightboxCardId) return;
+      const card = (sectionsData[currentLightboxSec] || []).find(c => c.id === currentLightboxCardId);
+      if (!card || !card.photos || card.photos.length === 0) return;
+      const item = card.photos[currentLightboxPhotoIdx];
       if (!item) return;
-      triggerCardPhotoReplace(item.section, item.cardId, item.id);
+      triggerCardPhotoReplace(currentLightboxSec, currentLightboxCardId, item.id);
     }
 
     function editCurrentLightboxPhoto() {
       if (!isAdmin) return;
-      if (!photosData || photosData.length === 0) return;
-      const item = photosData[currentPhotoIdx];
+      if (!currentLightboxSec || !currentLightboxCardId) return;
+      const card = (sectionsData[currentLightboxSec] || []).find(c => c.id === currentLightboxCardId);
+      if (!card || !card.photos || card.photos.length === 0) return;
+      const item = card.photos[currentLightboxPhotoIdx];
       if (!item) return;
-      openEditPhotoModal(item.section, item.cardId, item.id);
+      openEditPhotoModal(currentLightboxSec, currentLightboxCardId, item.id);
     }
 
     function editCurrentLightboxPhotoTitle() {
       if (!isAdmin) return;
-      if (!photosData || photosData.length === 0) return;
-      const item = photosData[currentPhotoIdx];
-      if (!item) return;
-      const card = (sectionsData[item.section] || []).find(c => c.id === item.cardId);
-      if (!card) return;
-      const photo = (card.photos || []).find(p => p.id === item.id);
+      if (!currentLightboxSec || !currentLightboxCardId) return;
+      const card = (sectionsData[currentLightboxSec] || []).find(c => c.id === currentLightboxCardId);
+      if (!card || !card.photos || card.photos.length === 0) return;
+      const photo = card.photos[currentLightboxPhotoIdx];
       if (!photo) return;
       const newName = prompt('Enter new photo title:', photo.title || card.title);
       if (newName !== null && newName.trim() !== '') {
         photo.title = newName.trim();
         saveSectionsData();
-        rebuildLightboxData();
         updateLightbox();
         renderAllSections();
-        showToast('âœ“ Photo title updated!');
+        showToast('✓ Photo title updated!');
       }
     }
 
@@ -2346,7 +2337,7 @@ function normalizeSectionsData(data) {
         card.title = newName.trim();
         saveSectionsData();
         renderAllSections();
-        showToast('âœ“ Card title updated!');
+        showToast('✓ Card title updated!');
       }
     }
 
@@ -2362,7 +2353,6 @@ function normalizeSectionsData(data) {
     }
 
     function triggerPhotoReplace(section, id, event) {
-      // Find card containing this photo
       const list = sectionsData[section] || [];
       for (const card of list) {
         if ((card.photos || []).some(p => p.id === id)) {
@@ -2391,7 +2381,7 @@ function normalizeSectionsData(data) {
         }
         await saveSectionsData();
         renderAllSections();
-        showToast('ðŸ“· Photo updated successfully!');
+        showToast('📷 Photo updated successfully!');
       } catch (err) {
         alert('Photo update failed: ' + err.message);
       } finally {
@@ -2446,7 +2436,7 @@ function normalizeSectionsData(data) {
       await saveSectionsData();
       renderAllSections();
       closeEditPhotoModal();
-      showToast('âœ“ Photo details updated!');
+      showToast('✓ Photo details updated!');
     }
 
     function openEditHeroModal(event) {
@@ -2464,7 +2454,7 @@ function normalizeSectionsData(data) {
       sectionsData = normalizeSectionsData(JSON.parse(JSON.stringify(DEFAULT_SECTIONS_DATA)));
       await idbSet('mashrafi_sections_photos', sectionsData);
       renderAllSections();
-      showToast('ðŸ”„ All sections restored to default photos!');
+      showToast('🔄 All sections restored to default photos!');
     }
 
     // --- Backup & Restore ---
@@ -2476,7 +2466,7 @@ function normalizeSectionsData(data) {
       document.body.appendChild(dlAnchor);
       dlAnchor.click();
       dlAnchor.remove();
-      showToast('ðŸ’¾ Photos backup JSON downloaded!');
+      showToast('💾 Photos backup JSON downloaded!');
     }
 
     async function handleImportBackup(event) {
@@ -2490,7 +2480,7 @@ function normalizeSectionsData(data) {
             sectionsData = normalizeSectionsData(imported);
             await saveSectionsData();
             renderAllSections();
-            showToast('ðŸ“‚ Photos backup imported successfully!');
+            showToast('📂 Photos backup imported successfully!');
           } else {
             alert('Invalid backup file format.');
           }
