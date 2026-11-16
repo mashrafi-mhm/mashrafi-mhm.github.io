@@ -1,0 +1,12 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.mashrafi.portfolio",
+      "sha256_cert_fingerprints": [
+        "14:6D:E9:7D:0F:52:AB:78:E8:96:4D:DF:2F:E4:01:BE:39:D5:19:D4:57:A8:10:96:E5:4E:9F:7C:E6:AA:52:19"
+      ]
+    }
+  }
+]

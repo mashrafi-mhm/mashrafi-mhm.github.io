@@ -13,6 +13,17 @@
   <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1">
   <link rel="canonical" href="https://mashrafi-mhm.github.io/">
 
+  <!-- Progressive Web App / Mobile App Config (Mashrafi-mhm) -->
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#000000">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Mashrafi-mhm">
+  <meta name="application-name" content="Mashrafi-mhm">
+  <link rel="apple-touch-icon" sizes="192x192" href="assets/icons/icon-192.png">
+  <link rel="icon" type="image/png" sizes="192x192" href="assets/icons/icon-192.png">
+  <link rel="icon" type="image/png" sizes="512x512" href="assets/icons/icon-512.png">
+
   <!-- Open Graph / Facebook -->
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://mashrafi-mhm.github.io/">
@@ -3056,6 +3067,19 @@
 
     // Load dashboard if in admin mode
     if (isAdmin) loadAnalyticsDashboard();
+
+    // Mobile App / PWA configuration: silent service worker registration
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('./sw.js').catch(() => {});
+      });
+    }
+
+    // Suppress any automatic on-screen install banners or popups
+    window.addEventListener('beforeinstallprompt', (e) => {
+      e.preventDefault();
+      return false;
+    });
 
   </script>
 
